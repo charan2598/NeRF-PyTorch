@@ -11,20 +11,20 @@ class NeRF_model(nn.Module):
         direction_size = 2 # theta and phi
         embedding_size = 2 # Sin(p) and Cos(p) where p is each coordinate
 
-        self.position_encoding_size = position_size*embedding_size*self.position_encoding_length
-        self.direction_encoding_size = direction_size*embedding_size*self.direction_encoding_length
+        position_encoding_size = position_size*embedding_size*self.position_encoding_length
+        direction_encoding_size = direction_size*embedding_size*self.direction_encoding_length
 
         self.activation_layer = nn.ReLU(inplace=True)
         self.sigmoid_layer = nn.Sigmoid()
         self.block1 = [
-            nn.Linear(in_features=self.position_encoding_size + position_size, out_features=hidden_dim),
+            nn.Linear(in_features=position_encoding_size + position_size, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim)
         ]
         self.block2 = [
-            nn.Linear(in_features=hidden_dim + self.position_encoding_size + position_size,out_features=hidden_dim),
+            nn.Linear(in_features=hidden_dim + position_encoding_size + position_size,out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
         ]
@@ -35,7 +35,7 @@ class NeRF_model(nn.Module):
             self.activation_layer
         )
         self.color_layer = nn.Sequential(
-            nn.Linear(in_features=hidden_dim + self.direction_encoding_size + direction_size,out_features=hidden_dim//2),
+            nn.Linear(in_features=hidden_dim + direction_encoding_size + direction_size,out_features=hidden_dim//2),
             self.activation_layer,
             nn.Linear(in_features=hidden_dim//2, out_features=3),
             self.sigmoid_layer
