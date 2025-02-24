@@ -75,7 +75,7 @@ class BlenderDataset(Dataset):
 
         height, width = image.shape[:2]
 
-        return image, pose, self.render_poses, [height, width, self.focal_length]
+        return image[:3,...], pose, self.render_poses, [height, width, self.focal_length]
     
 if __name__ == "__main__":
     dataset = BlenderDataset(basedir=r"D:\CV_Projects\NeRF-PyTorch\data\lego", split="train", resolution=400)
