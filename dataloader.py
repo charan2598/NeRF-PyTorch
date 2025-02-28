@@ -43,6 +43,7 @@ def get_transformation_matrix(scale, phi, theta):
 class BlenderDataset(Dataset):
     def __init__(self, basedir, split, resolution):
         super(BlenderDataset, self).__init__()
+        self.resolution = resolution
         json_data = json.load(open(os.path.join(basedir, "transforms_"+split+".json"), 'r'))
 
         self.images = []
@@ -66,6 +67,11 @@ class BlenderDataset(Dataset):
             transforms.Resize(resolution)
         ])
 
+    @classmethod
+    def create_and_return_object(classname, basedir, split, resolution):
+        dataset_object = classname(basedir, split, resolution)
+        return dataset_object, dataset_object.render_poses, [dataset_object.resolution, dataset_object.resolution, dataset_object.focal_length]
+
     def __len__(self):
         return len(self.images)
 
@@ -73,14 +79,12 @@ class BlenderDataset(Dataset):
         image = self.images_transforms(Image.open(self.images[index]))
         pose = self.poses[index]
 
-        height, width = image.shape[:2]
-
-        return image[:3,...], pose, self.render_poses, [height, width, self.focal_length]
+        return image[:3,...], pose
     
 if __name__ == "__main__":
-    dataset = BlenderDataset(basedir=r"D:\CV_Projects\NeRF-PyTorch\data\lego", split="train", resolution=400)
+    dataset, render_poses, [height, width, focal_length] = BlenderDataset.create_and_return_object(basedir=r"D:\CV_Projects\NeRF-PyTorch\data\lego", split="train", resolution=400)
     print("Length of dataset", len(dataset))
-    image, pose, render_poses, [height, width, focal_length] = dataset[0]
+    image, pose = dataset[0]
     print("Image resolution: ", image.shape)
     print("Pose: ", pose)
     print("Render Poses: ", render_poses.shape)
