@@ -67,6 +67,35 @@ class BlenderDataset(Dataset):
             transforms.Resize(resolution)
         ])
 
+        self.camera_intrinsic_matrix = np.array([
+            [self.focal_length, 0, 0.5*self.resolution],
+            [0, self.focal_length, 0.5*self.resolution],
+            [0, 0, 1]
+        ])
+
+        self.prepare_utils()
+
+    def prepare_utils(self):
+        # i, j used for camera co-ordinates
+        camera_coords_i, camera_coords_j = torch.meshgrid(
+            torch.linspace(start=0, end=self.resolution-1, steps=self.resolution),
+            torch.linspace(start=0, end=self.resolution-1, steps=self.resolution)
+        )
+
+        # Normalize to camera space: 
+        # 1. centre the image(convert pixel coords(0,0)...(H,W) to a system with (0,0) at the image centre) 
+        # 2. normalize to camera space by dividing with focal length,
+        # 3. Set Z = -1 the direction in which the camera is looking at the scene
+        self.directions = torch.stack(
+            [
+                (camera_coords_i - 0.5*self.resolution)/self.focal_length, # X
+                -(camera_coords_j - 0.5*self.resolution)/self.focal_length, # Y
+                -torch.ones_like(camera_coords_i) # Z
+            ],
+            dim = -1 # Stack on the last dimension
+        )
+
+
     @classmethod
     def create_and_return_object(classname, basedir, split, resolution):
         dataset_object = classname(basedir, split, resolution)
@@ -74,18 +103,52 @@ class BlenderDataset(Dataset):
 
     def __len__(self):
         return len(self.images)
+    
+    def get_rays(self, pose):
+        # Now we convert each ray direction vector which is in the camera space to the world 
+        # space by using the pose matrix (3, 3) which is a transformation matrix converting
+        # the rays into the world space.
+        ray_directions = torch.sum(
+            self.directions[..., None, :] * pose[:3, :3],
+            dim=-1
+        )
+
+        # Rays origin is the same for all the rays, so just make 
+        # copies of it to match the ray_directions shape.
+        ray_origins = torch.tensor(pose[:3, -1]).expand(ray_directions.shape)
+
+        return ray_origins, ray_directions
 
     def __getitem__(self, index):
-        image = self.images_transforms(Image.open(self.images[index]))
+        image = self.images_transforms(Image.open(self.images[index]))[:3,...]
         pose = self.poses[index]
 
-        return image[:3,...], pose
+        ray_origins, ray_directions = self.get_rays(pose)
+
+        # Concat the ray origin, ray direction and the rgb from image. 
+        # Shape: [r_o + r_d + rgb, H, W, 3]
+        rays = torch.cat(
+            tensors=[
+                ray_origins[None, ...], 
+                ray_directions[None, ...],
+                torch.reshape(image, (-1, self.resolution, self.resolution, 3))
+            ],
+            dim = 0
+        )
+        # ReShape to : [H, W, r_o + r_d + rgb, 3]
+        rays = torch.permute(rays, (1, 2, 0, 3))
+        # ReShape to : [H * W, (r_o + r_d + rgb), 3]
+        rays = torch.reshape(rays, (-1, 3, 3))
+
+        # Returning the image, the pose w.r.t image and the rays specific to the image
+        return image, pose, rays
     
 if __name__ == "__main__":
     dataset, render_poses, [height, width, focal_length] = BlenderDataset.create_and_return_object(basedir=r"D:\CV_Projects\NeRF-PyTorch\data\lego", split="train", resolution=400)
     print("Length of dataset", len(dataset))
-    image, pose = dataset[0]
+    image, pose, rays = dataset[0]
     print("Image resolution: ", image.shape)
     print("Pose: ", pose)
+    print("Rays: ", rays.shape)
     print("Render Poses: ", render_poses.shape)
     print("Focal length: ", focal_length)
