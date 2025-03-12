@@ -43,6 +43,9 @@ def get_transformation_matrix(scale, phi, theta):
 class BlenderDataset(Dataset):
     def __init__(self, basedir, split, resolution):
         super(BlenderDataset, self).__init__()
+        # Near and Far values specific to dataset.
+        self.near_const = 2.0
+        self.far_const = 6.0
         self.resolution = resolution
         json_data = json.load(open(os.path.join(basedir, "transforms_"+split+".json"), 'r'))
 
