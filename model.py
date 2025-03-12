@@ -8,7 +8,7 @@ class NeRF_model(nn.Module):
         self.position_encoding_length = position_encoding_length
         self.direction_encoding_length = direction_encoding_length
         position_size = 3 # x, y and z
-        direction_size = 2 # theta and phi
+        direction_size = 3 # theta and phi -> but represented along X, y, z as a vector.
         embedding_size = 2 # Sin(p) and Cos(p) where p is each coordinate
 
         position_encoding_size = position_size*embedding_size*self.position_encoding_length
@@ -85,7 +85,7 @@ class NeRF_model(nn.Module):
 
 if __name__ == "__main__":
     sample_positional_input = torch.randn(1024, 3)
-    sample_directional_input = torch.randn(1024, 2)
+    sample_directional_input = torch.randn(1024, 3)
 
     model = NeRF_model()
 
