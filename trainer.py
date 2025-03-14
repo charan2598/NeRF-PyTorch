@@ -79,7 +79,7 @@ class NeRFTrainer:
         # This is the part where we do the sampling of the rays which for different Z-values.
         # This is done coarsely and then finely to avoid empty space sampling.
         interval_values = torch.linspace(0.0, 1.0, steps=coarse_sample_size)
-        z_values = near * (1.0-interval_values) + far * (interval_values)
+        z_values = near * (1.0-interval_values) + far * (interval_values) # Shape: [Batch_size*H*W, 64]
 
         # Based on the paper, we sample Z_values in the intervals randomly.
         # Since random values are between -1 to 1, we need to do this as follows,
@@ -156,8 +156,78 @@ class NeRFTrainer:
         
     def sample_finer_z_values(bins, weights, fine_sample_size):
         # We add a small value to prevent NaNs.
-        weights += 1e-5
-        
+        weights += 1e-5 # Shape: [Batch_size*H*W, 64]
+        probability_distribution = weights / torch.sum(input=weights, dim=-1, keepdim=True)
+        cumulative_distribution = torch.cumsum(input=probability_distribution, dim=-1)
+        # Set the first value of the cumulative distribution as zero.
+        cumulative_distribution = torch.cat(
+            tensors=[
+                torch.zeros(cumulative_distribution[..., :0]), # Shape : [Batch_size*H*W, 1]
+                cumulative_distribution
+            ],
+            dim=-1
+        ) # Shape: [Batch_size*H*W, 65]
+
+        # Sample finer random values. Shape: [Batch_size*H*W, 128]
+        samples = torch.randn(list(cumulative_distribution.shape[:-1])+[fine_sample_size])
+
+        # Get the right most index where the samples fit in the cumulative distribuition.
+        indices = torch.searchsorted(
+            sorted_sequence=cumulative_distribution,
+            input=samples,
+            right=True
+        ) # Shape: [Batch_size*H*W, 128]
+        # Get one index lesser than the search sorted index. Use zero if index goes negative.
+        below_indices = torch.max(torch.zeros_like(input=indices), indices-1)
+        # Now cap the search sorted index so that it doesn't exceed the highest index. 
+        # Use last index(last index shape-1) if index goes too high.
+        above_indices = torch.min((cumulative_distribution.shape[-1]-1)*torch.ones_like(input=indices), indices)
+
+        # To use the indices we obtained previously we need to expand the 
+        # cumulative distribution tensor and the bins tensor to the shapes of the indices.
+        # And then obtain the values using torch.gather which does the work for us.
+        shape_to_expand_by = [indices.shape[0], indices.shape[1], cumulative_distribution.shape[-1]]
+        below_cumulative_distribution_values = torch.gather(
+            input=cumulative_distribution[:,None,...].expand(shape_to_expand_by),
+            dim=2,
+            index=below_indices[...,None]
+        ) # Shape: [Batch_size*H*W, 128, 1]
+        above_cumulative_distribution_values = torch.gather(
+            input=cumulative_distribution[:,None,...].expand(shape_to_expand_by),
+            dim=2,
+            index=above_indices[...,None]
+        ) # Shape: [Batch_size*H*W, 128, 1]
+
+        # Similarly for bins
+        below_bin_values = torch.gather(
+            input=bins[:,None,...].expand(shape_to_expand_by),
+            dim=2,
+            index=below_indices[...,None]
+        ) # Shape: [Batch_size*H*W, 128, 1]
+        above_bin_values = torch.gather(
+            input=bins[:,None,...].expand(shape_to_expand_by),
+            dim=2,
+            index=above_indices[...,None]
+        ) # Shape: [Batch_size*H*W, 128, 1]
+
+        # Get the interval size between the cumulative distribution values to accomodate the samples.
+        denominator = above_cumulative_distribution_values[...,0] - below_cumulative_distribution_values[...,0]
+        # Make sure there are no zeros, so replace them with ones.
+        denominator = torch.where(
+            condition=denominator < 1e-5,
+            input=torch.ones_like(denominator), # If condition is met get values from input tensor.
+            other=denominator # If condition is not met get values from other tensor.
+        )
+
+        # Now that we know the interval size(i.e. denominator) and
+        # lower end value of the interval which is the below_cumulative_distribution_values.
+        # We find where each sample is going to lie in its interval.
+        interval_position_of_sample = (samples - below_cumulative_distribution_values[...,0])/denominator
+
+        # Now to the actual Z values by using the bins and multiply it with the interval position of sample.
+        finer_z_values = below_bin_values[...,0] + interval_position_of_sample * (above_bin_values[...,0] - below_bin_values[...,0])
+
+        return finer_z_values # Shape: [Batch_size*H*W, 128]
 
     def transform_network_outputs(self, colors, density, z_values, ray_directions):
         # Distances: it is the distance between adjacent samples. This is 
