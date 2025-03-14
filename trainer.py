@@ -155,7 +155,9 @@ class NeRFTrainer:
         
         
     def sample_finer_z_values(bins, weights, fine_sample_size):
-        pass
+        # We add a small value to prevent NaNs.
+        weights += 1e-5
+        
 
     def transform_network_outputs(self, colors, density, z_values, ray_directions):
         # Distances: it is the distance between adjacent samples. This is 

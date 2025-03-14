@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import torch.optim as optim
 from model import NeRF_model
@@ -32,6 +33,5 @@ learning_rate = 5e-4
 # Define Optimizer
 optimizer = optim.Adam(params=trainable_params, lr=learning_rate, betas=(0.9, 0.999))
 
-# Include checkpointing and model loading code
-#
-
+# Loss function
+loss_function = torch.nn.MSELoss()
