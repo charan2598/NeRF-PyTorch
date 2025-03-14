@@ -8,11 +8,11 @@ class NeRF_model(nn.Module):
         self.position_encoding_length = position_encoding_length
         self.direction_encoding_length = direction_encoding_length
         position_size = 3 # x, y and z
-        direction_size = 3 # theta and phi -> but represented along X, y, z as a vector.
+        direction_size = 3 # theta and phi, but represented along X, y, z as a vector.
         embedding_size = 2 # Sin(p) and Cos(p) where p is each coordinate
 
-        position_encoding_size = position_size*embedding_size*self.position_encoding_length
-        direction_encoding_size = direction_size*embedding_size*self.direction_encoding_length
+        position_encoding_size = position_size * embedding_size * self.position_encoding_length
+        direction_encoding_size = direction_size * embedding_size * self.direction_encoding_length
 
         self.activation_layer = nn.ReLU(inplace=True)
         self.sigmoid_layer = nn.Sigmoid()
