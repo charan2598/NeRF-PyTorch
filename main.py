@@ -3,6 +3,8 @@ import numpy as np
 import torch.optim as optim
 from model import NeRF_model
 from dataloader import BlenderDataset
+from trainer import NeRFTrainer
+from torch.utils.data import DataLoader
 
 # 
 basedir = r"D:\CV_Projects\NeRF-PyTorch\data\lego"
@@ -20,7 +22,8 @@ camera_intrinsic_matrix = np.array([
 ])
 
 # Define Dataloaders
-# train_dataloader = 
+batch_size = 1
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
 # Create Nerf Model
 coarse_nerf_model = NeRF_model()
@@ -35,3 +38,14 @@ optimizer = optim.Adam(params=trainable_params, lr=learning_rate, betas=(0.9, 0.
 
 # Loss function
 loss_function = torch.nn.MSELoss()
+
+# Trainer 
+nerf_trainer = NeRFTrainer(
+    coarse_model=coarse_nerf_model,
+    fine_model=fine_nerf_model,
+    optimizer=optimizer,
+    loss_function=loss_function,
+    training_dataloader=train_dataloader
+)
+
+nerf_trainer.train()

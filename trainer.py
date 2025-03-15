@@ -73,12 +73,12 @@ class NeRFTrainer:
         near_const = self.training_dataloader.dataset.near_const # 2.0 for blender
         far_const = self.training_dataloader.dataset.far_const # 6.0 for blender
         # Shape of the below vectors should be: [Batch_size*H*W, 1]
-        near = near_const * torch.ones_like(ray_directions[..., :1])
-        far = far_const * torch.ones_like(ray_directions[..., :1])
+        near = near_const * torch.ones_like(ray_directions[..., :1]).to(self.device)
+        far = far_const * torch.ones_like(ray_directions[..., :1]).to(self.device)
 
         # This is the part where we do the sampling of the rays which for different Z-values.
         # This is done coarsely and then finely to avoid empty space sampling.
-        interval_values = torch.linspace(0.0, 1.0, steps=coarse_sample_size)
+        interval_values = torch.linspace(0.0, 1.0, steps=coarse_sample_size).to(self.device)
         z_values = near * (1.0-interval_values) + far * (interval_values) # Shape: [Batch_size*H*W, 64]
 
         # Based on the paper, we sample Z_values in the intervals randomly.
@@ -89,7 +89,7 @@ class NeRFTrainer:
         mids = 0.5 * (z_values[..., 1:] + z_values[..., :-1])
         upper = torch.cat([mids, z_values[..., -1:]], dim=-1)
         lower = torch.cat([z_values[...,:1], mids], dim=-1)
-        random_values = torch.randn(z_values.shape)
+        random_values = torch.randn(z_values.shape).to(self.device)
 
         # This is coarsely sampled Z values.
         z_values = lower + (upper - lower) * random_values
@@ -102,7 +102,7 @@ class NeRFTrainer:
         points = ray_origins[..., None, :] + ray_directions[..., None, :] * z_values[..., :, None]
 
         points_flattened = torch.reshape(points, [-1, 3]) # Shape: [Batch_size*H*W*64, 3]
-        view_directions = view_directions[:, None, 3].expand(points.shape) # Shape: [Batch_size*H*W , 64, 3]
+        view_directions = view_directions[:, None, :].expand(points.shape) # Shape: [Batch_size*H*W , 64, 3]
         view_directions_flattened = torch.reshape(view_directions, [-1, 3]) # Shape: [Batch_size*H*W*64, 3]
 
         coarse_network_output = self.coarse_model(points_flattened, view_directions_flattened)
@@ -116,7 +116,8 @@ class NeRFTrainer:
 
         # Now that we have the outputs from coarse network, we can proceed to 
         # the finer model with a higher sample size based on the coarse model output.
-        finer_z_values = self.sample_finer_z_values(bins=mids, weights=weights, fine_sample_size=fine_sample_size)
+        # Since Z values mids is of the shape [Batch_size*H*W, 63], we ignore the weights value at 0th index
+        finer_z_values = self.sample_finer_z_values(bins=mids, weights=weights[...,1:], fine_sample_size=fine_sample_size)
 
         # TODO: Not sure why I am doing the detach below. Fix or explain why later.
         finer_z_values = finer_z_values.detach()
@@ -154,22 +155,22 @@ class NeRFTrainer:
         return render_outputs
         
         
-    def sample_finer_z_values(bins, weights, fine_sample_size):
+    def sample_finer_z_values(self, bins, weights, fine_sample_size):
         # We add a small value to prevent NaNs.
-        weights += 1e-5 # Shape: [Batch_size*H*W, 64]
+        weights = weights + 1e-5 # Shape: [Batch_size*H*W, 63]
         probability_distribution = weights / torch.sum(input=weights, dim=-1, keepdim=True)
         cumulative_distribution = torch.cumsum(input=probability_distribution, dim=-1)
         # Set the first value of the cumulative distribution as zero.
         cumulative_distribution = torch.cat(
             tensors=[
-                torch.zeros(cumulative_distribution[..., :0]), # Shape : [Batch_size*H*W, 1]
+                torch.zeros_like(cumulative_distribution[..., :0]), # Shape : [Batch_size*H*W, 1]
                 cumulative_distribution
             ],
             dim=-1
-        ) # Shape: [Batch_size*H*W, 65]
+        ) # Shape: [Batch_size*H*W, 64]
 
         # Sample finer random values. Shape: [Batch_size*H*W, 128]
-        samples = torch.randn(list(cumulative_distribution.shape[:-1])+[fine_sample_size])
+        samples = torch.randn(list(cumulative_distribution.shape[:-1])+[fine_sample_size]).to(self.device)
 
         # Get the right most index where the samples fit in the cumulative distribuition.
         indices = torch.searchsorted(
@@ -234,7 +235,7 @@ class NeRFTrainer:
         # from the volume rendering equation represented by delta(i).
         distances = z_values[..., 1:] - z_values[..., :-1]
         # Since this is one less than the sample size, we concat one huge value at the end.
-        infinity = torch.Tensor([1e10]).expand(list(distances.shape[:-1])+[1])
+        infinity = torch.Tensor([1e10]).expand(list(distances.shape[:-1])+[1]).to(self.device)
         distances = torch.cat([distances, infinity], dim=-1)
         # Find the norm of the ray directions individually and multiply with the 
         # values obtained from Z_values.
@@ -243,7 +244,8 @@ class NeRFTrainer:
         # Colors have been already passed through Sigmoid layer in the network.
         # Density Values are also obtained after ReLU activation.
         # We compute alpha values based on the formula from paper.
-        alpha = 1.0-torch.exp(-1*density*distances) # Shape: [Batch_size*H*W, 64].
+        # Density Shape: [Batch_size*H*W, 64, 1]
+        alpha = 1.0-torch.exp(-1*density[...,0]*distances) # Shape: [Batch_size*H*W, 64].
 
         # This is computed in a trivial fashion, as opposed to the formula 
         # given in the paper. But when simplified it is the same. 
@@ -258,7 +260,7 @@ class NeRFTrainer:
         # [Batch_size*H*W, 65] and then get rid of the last value to retain only 64 samples.
         accumulated_transmittance = torch.cumprod(
             torch.cat(tensors=[
-                torch.ones((alpha.shape[0], 1)),
+                torch.ones((alpha.shape[0], 1)).to(self.device),
                 1.0 - alpha + 1e-10 # so that Nan values are avoided.
             ],
             dim=-1), # Concat on the last dimension to get shape: [Batch_size*H*W, 65]
@@ -270,12 +272,12 @@ class NeRFTrainer:
         # Summing over the ray samples to get [Batch_size*H*W, 3]
         # [Batch_size*H*W, 64, 1] * [Batch_size*H*W, 64, 3] and sum on dim with size 64 reduced to 1. But keep in mind the final shape is [Batch_size*H*W, 3].
         color_map = torch.sum(input=weights[..., None] * colors, dim=-2)
-        depth_map = torch.sum(input=weights[..., None] * z_values)
+        depth_map = torch.sum(input=weights * z_values, dim=-1)
 
         # Accumulation Map: This is the sum of the weights along each ray, giving an idea 
         # of how much of the total ray is occupied by the scene versus being empty.
         # Basically, How much of the scene is covered by the ray (opacity measure).
-        accumulation_map = torch.sum(weights, -1)
+        accumulation_map = torch.sum(input=weights, dim=-1)
 
         # Disparity Map: The disparity map is the inverse of the depth map. 
         # It provides a representation of how close objects are to the camera.
@@ -290,12 +292,13 @@ class NeRFTrainer:
 
     def train_one_epoch(self):
         average_loss = 0
-        for data in self.training_dataloader:
+        for data in tqdm(self.training_dataloader):
             self.optimizer.zero_grad()
 
             # Do something with the data
             # Shape would be : [Batch_size, H*W, r_o + r_d + rgb, 3]
             image, pose, rays_with_target = data
+            rays_with_target = rays_with_target.to(self.device)
             rays, target_colors = rays_with_target[:, :, :-1], rays_with_target[:, :, -1]
 
             output = self.render(rays)

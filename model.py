@@ -16,18 +16,18 @@ class NeRF_model(nn.Module):
 
         self.activation_layer = nn.ReLU(inplace=True)
         self.sigmoid_layer = nn.Sigmoid()
-        self.block1 = [
+        self.block1 = nn.ModuleList([
             nn.Linear(in_features=position_encoding_size + position_size, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim)
-        ]
-        self.block2 = [
+        ])
+        self.block2 = nn.ModuleList([
             nn.Linear(in_features=hidden_dim + position_encoding_size + position_size,out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
             nn.Linear(in_features=hidden_dim, out_features=hidden_dim),
-        ]
+        ])
         self.no_activation_layer = nn.Linear(in_features=hidden_dim, out_features=hidden_dim)
         
         self.density_layer = nn.Sequential(
@@ -84,10 +84,10 @@ class NeRF_model(nn.Module):
                 nn.init.zeros_(module.bias)
 
 if __name__ == "__main__":
-    sample_positional_input = torch.randn(1024, 3)
-    sample_directional_input = torch.randn(1024, 3)
+    sample_positional_input = torch.randn(1024, 3).cuda()
+    sample_directional_input = torch.randn(1024, 3).cuda()
 
-    model = NeRF_model()
+    model = NeRF_model().cuda()
 
     colors, density = model(sample_positional_input, sample_directional_input)
 
