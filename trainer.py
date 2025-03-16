@@ -11,6 +11,7 @@ class NeRFTrainer:
         optimizer,
         loss_function,
         training_dataloader,
+        initial_learning_rate=5e-4,
         num_epochs=100,
         save_frequency=25,
         device="cuda",
@@ -44,6 +45,7 @@ class NeRFTrainer:
             if training_dataloader is not None
             else self.raise_exception("Training Dataloader is None")
         )
+        self.initial_learning_rate = initial_learning_rate
         self.num_epochs = num_epochs
         self.save_frequency = save_frequency
         self.model_dir = model_dir
@@ -321,6 +323,12 @@ class NeRFTrainer:
         progress_bar = tqdm(range(self.num_epochs))
         for epoch in progress_bar:
             train_loss = self.train_one_epoch()
+            # Using the same kind of learning rate scheduling as the Authors.
+            decay_rate = 0.1
+            decay_steps = 250 * 1000
+            new_learning_rate = self.initial_learning_rate * (decay_rate** ((epoch+1)/decay_steps))
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = new_learning_rate
             progress_bar.set_description(
                 f"Epoch: {epoch+1}/{self.num_epochs} Training Loss: {train_loss} "
             )
