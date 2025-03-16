@@ -56,6 +56,23 @@ class NeRFTrainer:
     def raise_exception(self, message):
         raise Exception(message)
 
+    def run_network_in_batches(
+        self, points, view_directions, network, ray_batch_size=1024
+    ):
+        batch_indices = [
+            i * ray_batch_size for i in range(points.shape[0] // ray_batch_size)
+        ] + [points.shape[0]]
+        outputs = [
+            (
+                self.coarse_model(points[start:end], view_directions[start:end])
+                if network == "coarse"
+                else self.fine_model(points[start:end], view_directions[start:end])
+            )
+            for start, end in zip(batch_indices, batch_indices[1:])
+        ]
+        outputs = torch.cat(tensors=outputs, dim=0)
+        return outputs
+
     def render(self, rays, coarse_sample_size=64, fine_sample_size=128):
         batch_size, pixel_count, _, _ = rays.shape
         # Rays shape would be: [Batch_size, H*W, 2, 3]
@@ -121,8 +138,10 @@ class NeRFTrainer:
         )  # Shape: [Batch_size*H*W*64, 3]
 
         # Calling the Coarse Network here.
-        coarse_network_output = self.coarse_model(
-            points_flattened, view_directions_flattened
+        coarse_network_output = self.run_network_in_batches(
+            points=points_flattened, 
+            view_directions=view_directions_flattened,
+            network="coarse"
         )
         coarse_network_output_colors = torch.reshape(
             coarse_network_output[0], points.shape
@@ -174,8 +193,10 @@ class NeRFTrainer:
             view_directions, [-1, 3]
         )  # Shape: [Batch_size*H*W*(64+128), 3]
 
-        fine_network_output = self.fine_model(
-            points_flattened, view_directions_flattened
+        fine_network_output = self.run_network_in_batches(
+            points=points_flattened, 
+            view_directions=view_directions_flattened,
+            network="fine"
         )
         fine_network_output_colors = torch.reshape(fine_network_output[0], points.shape)
         fine_network_output_density = torch.reshape(
